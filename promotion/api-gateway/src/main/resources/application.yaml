@@ -24,29 +24,43 @@ spring:
               uri: lb://USER-SERVICE  # uri는 로드밸런스를 사용하고 USER-SERVICE 는 유레카에 입력된 서비스 네임
               predicates:
                 - Path=/api/v1/users/signup, /api/v1/users/login, /api/v1/users/validate-token, /api/v1/users/refresh-token
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceBreaker
+                    fallbackUri: forward:/fallback/users
             - id: user-service
               uri: lb://USER-SERVICE
               predicates:
                 - Path=/api/v1/users/**
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: userServiceBreaker
+                    fallbackUri: forward:/fallback/users
                 - name: JwtAuthenticationFilter  # 라우터를 통해 user-service에 들어오게 되면 JwtAuthenticationFilter 를 타게된다.
 
 resilience4j:
   circuitbreaker:
     instances:
-      authCircuitBreaker:
+      userServiceBreaker:
         registerHealthIndicator: true
-        slidingWindowSize: 5 # 서킷 브레이커가 고려할 최근 호출 수
-        minimumNumberOfCalls: 10 # 최소 호출 횟수, 이 수를 넘어야 서킷 브레이커의 상태가 변경됨
-        permittedNumberOfCallsInHalfOpenState: 10 # 반-열린 상태에서 허용되는 호출 수
-        automaticTransitionFromOpenToHalfOpenEnabled: true # 서킷 브레이커가 자동으로 반-열린 상태로 전환되는지 여부
-        waitDurationInOpenState: 5000 # 서킷 브레이커가 열린 상태로 유지되는 시간
-        failureRateThreshold: 50 # 실패율 기준, 이 비율을 초과하는 실패가 발생하면 서킷 브레이커가 열립니다
+        slidingWindowSize: 10 # 실패율을 계산할 때 보는 최근 호출 수
+        minimumNumberOfCalls: 10 # 최소 호출 횟수, 이 수를 넘어야 서킷 브레이커의 상태가 변경됨(이만큼 호출이 쌓이기 전에는 실패율을 계산하지 않음)
+        # HALF_OPEN(반-열린 상태): OPEN 이후 서비스가 복구됐는지 일부 요청만 실제로 보내서 확인하는 상태
+        #   OPEN --(waitDurationInOpenState 경과)--> HALF_OPEN
+        #   HALF_OPEN 시험 호출의 실패율 < failureRateThreshold  -> CLOSED (정상 복귀)
+        #   HALF_OPEN 시험 호출의 실패율 >= failureRateThreshold -> 다시 OPEN (대기 시간 재시작)
+        permittedNumberOfCallsInHalfOpenState: 10 # HALF_OPEN에서 실제로 보내 볼 시험 호출 수, 이 호출들이 모두 끝나야 CLOSED/OPEN 판정을 한다 (초과 요청은 CallNotPermittedException으로 차단)
+        automaticTransitionFromOpenToHalfOpenEnabled: true # true: 대기 시간이 지나면 요청이 없어도 자동으로 HALF_OPEN 전환 / false: 대기 시간이 지난 뒤 첫 요청이 들어올 때 전환
+        waitDurationInOpenState: 5000 # OPEN 상태를 유지하는 시간(ms), 이 시간 동안은 서비스를 호출하지 않고 바로 fallback 처리 후 HALF_OPEN으로 넘어간다
+        failureRateThreshold: 50 # 실패율 기준, 이 비율을 이상으로 실패가 발생하면 서킷 브레이커가 열린다.
         eventConsumerBufferSize: 10
         record-exceptions:
           - java.util.concurrent.TimeoutException
           - org.springframework.cloud.gateway.support.NotFoundException
           - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+          - java.net.ConnectException  # 대상 서비스가 죽어서 연결이 거부된 경우
 
 eureka:
   client:
