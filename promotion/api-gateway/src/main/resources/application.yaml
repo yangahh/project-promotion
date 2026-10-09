@@ -1,0 +1,65 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: api-gateway
+#  data:
+#    redis:
+#      host: localhost
+#      port: 6379
+  cloud:
+    gateway:
+      server:
+        webflux:  # Spring Cloud 2025.x 부터 spring.cloud.gateway.routes -> spring.cloud.gateway.server.webflux.routes
+          routes:  # 라우팅 설정
+            - id: public-user-service
+              uri: lb://USER-SERVICE  # uri는 로드밸런스를 사용하고 USER-SERVICE 는 유레카에 입력된 서비스 네임
+              predicates:
+                - Path=/api/v1/users/signup, /api/v1/users/login, /api/v1/users/validate-token, /api/v1/users/refresh-token
+            - id: user-service
+              uri: lb://USER-SERVICE
+              predicates:
+                - Path=/api/v1/users/**
+              filters:
+                - name: JwtAuthenticationFilter  # 라우터를 통해 user-service에 들어오게 되면 JwtAuthenticationFilter 를 타게된다.
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      authCircuitBreaker:
+        registerHealthIndicator: true
+        slidingWindowSize: 5 # 서킷 브레이커가 고려할 최근 호출 수
+        minimumNumberOfCalls: 10 # 최소 호출 횟수, 이 수를 넘어야 서킷 브레이커의 상태가 변경됨
+        permittedNumberOfCallsInHalfOpenState: 10 # 반-열린 상태에서 허용되는 호출 수
+        automaticTransitionFromOpenToHalfOpenEnabled: true # 서킷 브레이커가 자동으로 반-열린 상태로 전환되는지 여부
+        waitDurationInOpenState: 5000 # 서킷 브레이커가 열린 상태로 유지되는 시간
+        failureRateThreshold: 50 # 실패율 기준, 이 비율을 초과하는 실패가 발생하면 서킷 브레이커가 열립니다
+        eventConsumerBufferSize: 10
+        record-exceptions:
+          - java.util.concurrent.TimeoutException
+          - org.springframework.cloud.gateway.support.NotFoundException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+jwt:
+  secret: promotionTestSecretKey2026PromotionTestSecretKey2026
+  token-validity-in-seconds: 3600
+
+#management:
+#  endpoints:
+#    web:
+#      exposure:
+#        include: health,info,metrics,prometheus
+#  endpoint:
+#    health:
+#      show-details: always
+#  metrics:
+#    tags:
+#      application: ${spring.application.name}

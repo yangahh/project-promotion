@@ -37,6 +37,7 @@ public class AuthController {
             @RequestBody UserDto.TokenRequest request) {
         Claims claims = jwtService.validateToken(request.getToken());
         return ResponseEntity.ok(UserDto.TokenResponse.builder()
+                .id(claims.get("id", Integer.class))
                 .email(claims.getSubject())
                 .valid(true)
                 .role(claims.get("role", String.class))

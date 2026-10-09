@@ -26,6 +26,7 @@ public class JWTService {
         long currentTimeMillis = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(user.getEmail())
+                .claim("id", user.getId())  // gateway가 X-USER-ID 헤더로 전달할 유저 id
                 .claim("role", "USER")  // TODO: User에 Role 추가
                 .issuedAt(new Date(currentTimeMillis))
                 .expiration(new Date(currentTimeMillis + 3600000)) // Token expires in 1 hour
